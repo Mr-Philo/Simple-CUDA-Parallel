@@ -9,7 +9,6 @@ MLP::MLP(int input_dim, int hidden_dim, int output_dim) {
     b2 = vector<double>(output_dim, 0);
 
     // initialize W1, W2, b1, b2
-    // TODO: accelerate by CUDA
     for(int i = 0;i<hidden_dim;i++){
         for (int j = 0; j < input_dim; ++j) {
             W1[i][j] = random(-1,1);

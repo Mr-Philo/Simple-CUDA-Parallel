@@ -1,24 +1,24 @@
-#include "functions.h"
+#include "cuda_functions.h"
 #include <cmath>
 #include <cassert>
 #include <cuda_runtime.h>
 
 using namespace std;
 
-double cross_entropy(const double* y, const double* y_hat, int size) {
-    double loss = 0;
-    for (int i = 0; i < size; i++) {
-        loss -= y[i] * log(y_hat[i]);
-    }
-    return loss;
-}
-// the following function(which uses atomicAdd) is probaly slower than sequential version, or even not working due to 'atomicAdd' does not support double type on GPU capability < 6.0, so we may not use it.
-__global__ void cross_entropy_kernel(const double* y, const double* y_hat, double* loss, int size) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < size) {
-        atomicAdd(loss, -y[tid] * log(y_hat[tid]));
-    }
-}
+// double cross_entropy(const double* y, const double* y_hat, int size) {
+//     double loss = 0;
+//     for (int i = 0; i < size; i++) {
+//         loss -= y[i] * log(y_hat[i]);
+//     }
+//     return loss;
+// }
+// // the following function(which uses atomicAdd) is probaly slower than sequential version, or even not working due to 'atomicAdd' does not support double type on GPU capability < 6.0, so we may not use it.
+// __global__ void cross_entropy_kernel(const double* y, const double* y_hat, double* loss, int size) {
+//     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//     if (tid < size) {
+//         atomicAdd(loss, -y[tid] * log(y_hat[tid]));
+//     }
+// }
 
 /*double cross_entropy(const vector<double>& y, const vector<double>& y_hat) {
     int size = y.size();
@@ -144,10 +144,6 @@ __global__ void vector_multiply_kernel(double* x, double y, int size) {
     }
 }
 
-__device__ double random(double min, double max) {
-    return min + (max - min) * rand() / (RAND_MAX + 1.0);
-}
-
 __global__ void matrix_dot_kernel(double* a, double* b, double* result, int a_rows, int a_cols, int b_cols) {
     int tid_x = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid_x < a_rows) {
@@ -221,3 +217,8 @@ __global__ void transpose_kernel(double* x, double* result, int m, int n) {
 
 //     return result;
 // }
+
+// non-CUDA functions
+double random(double min, double max) {
+    return min + (max - min) * rand() / (RAND_MAX + 1.0);
+}
