@@ -2,44 +2,94 @@
 #include <cuda_runtime.h>
 using namespace std;
 
-MLP_CUDA::MLP_CUDA(int input_dim, int hidden_dim, int output_dim) {
-    input_dim = input_dim;
-    hidden_dim = hidden_dim;
-    output_dim = output_dim;
-
-    // Randomly initialize the weights and biases
-    d_W1 = new double[hidden_dim * input_dim];
-    d_W2 = new double[output_dim * hidden_dim];
-    d_b1 = new double[hidden_dim];
-    d_b2 = new double[output_dim];
+// definition of Host MLP class
+Host_MLP_CUDA::Host_MLP_CUDA(int input_dim, int hidden_dim, int output_dim){
+    // Randomly initialize the weights and biases (the same as CPU)
+    W1 = vector<vector<double>>(hidden_dim, vector<double>(input_dim, 0));
+    W2 = vector<vector<double>>(output_dim, vector<double>(hidden_dim, 0));
+    b1 = vector<double>(hidden_dim, 0);
+    b2 = vector<double>(output_dim, 0);
 
     // initialize W1, W2, b1, b2
-    // no need to move to GPU, since the time consuming of transfering data is much more than the time of initializing
     for(int i = 0;i<hidden_dim;i++){
         for (int j = 0; j < input_dim; ++j) {
-            d_W1[i * input_dim + j] = random(-1,1);
+            W1[i][j] = random(-1,1);
         }
     }
     for(int i = 0;i<output_dim;i++){
         for (int j = 0; j < hidden_dim; ++j) {
-            d_W2[i * hidden_dim + j] = random(-1,1);
+            W2[i][j] = random(-1,1);
         }
     }
     for(int i = 0; i<hidden_dim; i++) {
-        d_b1[i] = random(-1,1);
+        b1[i] = random(-1,1);
     }
     for (int i = 0; i < output_dim; ++i) {
-        d_b2[i] = random(-1,1);
+        b2[i] = random(-1,1);
     }
 
     // Initialize the gradients
-    d_W1_grad = new double[hidden_dim * input_dim];
-    d_W2_grad = new double[output_dim * hidden_dim];
-    d_b1_grad = new double[hidden_dim];
-    d_b2_grad = new double[output_dim];
+    W1_grad = vector<vector<double>>(W1.size(), vector<double>(W1[0].size(), 0));
+    W2_grad = vector<vector<double>>(W2.size(), vector<double>(W2[0].size(), 0));
+    b1_grad = vector<double>(b1.size(), 0);
+    b2_grad = vector<double>(b2.size(), 0);
+
+    // inner variables should also be prepared to copy to GPU
+    y1 = vector<double>(hidden_dim, 0);
+    z1 = vector<double>(hidden_dim, 0);
+    y2 = vector<double>(output_dim, 0);
+    z2 = vector<double>(output_dim, 0);
+
+    // need to transfer 2D array to 1D array before copying to GPU
+    W1_1D = matrix_to_array(W1);
+    W2_1D = matrix_to_array(W2);
+    W1_grad_1D = matrix_to_array(W1_grad);
+    W2_grad_1D = matrix_to_array(W2_grad);
 }
 
-__device__ void MLP_CUDA::zero_grad() {
+Host_MLP_CUDA::~Host_MLP_CUDA() = default;
+
+// definition of Device MLP class
+Device_MLP_CUDA::Device_MLP_CUDA(int input_dim, int hidden_dim, int output_dim) {
+    this->input_dim = input_dim;  
+    this->hidden_dim = hidden_dim;  
+    this->output_dim = output_dim;
+}
+
+void copyDataToDevice(Host_MLP_CUDA& host_mlp, Device_MLP_CUDA& device_mlp){
+    // copy the weights and gradients to GPU
+    cudaMalloc((void**)&device_mlp.d_W1, host_mlp.W1_1D.size() * sizeof(double));   // should use host_mlp.W1_1D.size() instead of host_mlp.W1.size(). The second one is the number of rows, because W1 is a 2D array.
+    cudaMalloc((void**)&device_mlp.d_W2, host_mlp.W2_1D.size() * sizeof(double));   // 2D to 1D
+    cudaMalloc((void**)&device_mlp.d_b1, host_mlp.b1.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_b2, host_mlp.b2.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_W1_grad, host_mlp.W1_grad_1D.size() * sizeof(double));  // 2D to 1D
+    cudaMalloc((void**)&device_mlp.d_W2_grad, host_mlp.W2_grad_1D.size() * sizeof(double)); // 2D to 1D
+    cudaMalloc((void**)&device_mlp.d_b1_grad, host_mlp.b1_grad.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_b2_grad, host_mlp.b2_grad.size() * sizeof(double));
+    
+    cudaMalloc((void**)&device_mlp.d_y1, host_mlp.y1.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_z1, host_mlp.z1.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_y2, host_mlp.y2.size() * sizeof(double));
+    cudaMalloc((void**)&device_mlp.d_z2, host_mlp.z2.size() * sizeof(double));
+
+    // need to transfer 2D array to 1D array before copying to GPU
+    cudaMemcpy(device_mlp.d_W1, host_mlp.W1_1D.data(), host_mlp.W1_1D.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_W2, host_mlp.W2_1D.data(), host_mlp.W2_1D.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_W1_grad, host_mlp.W1_grad_1D.data(), host_mlp.W1_grad_1D.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_W2_grad, host_mlp.W2_grad_1D.data(), host_mlp.W2_grad_1D.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_b1, host_mlp.b1.data(), host_mlp.b1.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_b2, host_mlp.b2.data(), host_mlp.b2.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_b1_grad, host_mlp.b1_grad.data(), host_mlp.b1_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_b2_grad, host_mlp.b2_grad.data(), host_mlp.b2_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(device_mlp.d_y1, host_mlp.y1.data(), host_mlp.y1.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_z1, host_mlp.z1.data(), host_mlp.z1.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_y2, host_mlp.y2.data(), host_mlp.y2.size() * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_mlp.d_z2, host_mlp.z2.data(), host_mlp.z2.size() * sizeof(double), cudaMemcpyHostToDevice);
+
+}
+
+__device__ void Device_MLP_CUDA::zero_grad() {
     // fill the gradients with 0
     for (int i = 0; i < hidden_dim * input_dim; ++i) {
         d_W1_grad[i] = 0;
@@ -57,217 +107,103 @@ __device__ void MLP_CUDA::zero_grad() {
 
 
 // TODO: 更新：将CUDA内核缩减至一个，只在main.cpp函数中执行，其中整个流程的主要函数采取_device__的方式，即在CUDA内核中执行
-// forward CUDA kernel
-__global__ void forward_kernel(double* input, double* W1, double* y1, double* b1, double* z1, double* W2, double* y2, double* b2, double* z2, int input_dim, int hidden_dim, int output_dim) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// forward CUDA function
+__device__ void Device_MLP_CUDA::forward(double* input, int idx) {
+
     // input -> first hidden layer
     if (idx < hidden_dim) {
         double sum = 0;
         for (int j = 0; j < input_dim; ++j) {
-            sum += W1[idx * input_dim + j] * input[j];  // matrix-vector multiplication
+            sum += d_W1[idx * input_dim + j] * input[j];  // matrix-vector multiplication
         }
-        y1[idx] = sum + b1[idx];        // vector add
-        z1[idx] = sigmoid(y1[idx]);     // activation function
+        d_y1[idx] = sum + d_b1[idx];        // vector add
+        d_z1[idx] = sigmoid(d_y1[idx]);     // activation function (sigmoid)
     }
     // first hidden layer -> output
+    double out_sum = 0;
     if (idx < output_dim) {
         double sum = 0;
         for (int j = 0; j < hidden_dim; ++j) {
-            sum += W2[idx * hidden_dim + j] * z1[j];    // matrix-vector multiplication
+            sum += d_W2[idx * hidden_dim + j] * d_z1[j];    // matrix-vector multiplication
         }
-        y2[idx] = sum + b2[idx];        // vector add
-        z2[idx] = softmax(y2[idx]);     // activation function
-        softmax_kernel(z2, output_dim);  // softmax
+        d_y2[idx] = sum + d_b2[idx];            // vector add
+        d_z2[idx] = exp(d_y2[idx]);             // activation function
+        atomicAdd(&out_sum, d_z2[idx]);         // ! wait until all threads finish
+    }
+    __syncthreads();
+    if (idx < output_dim) {
+        for (int i = 0; i < output_dim; ++i) {
+            d_z2[idx] /= out_sum;               // finish softmax
+        }
     }
 }
 
-vector<double> MLP_CUDA::forward(const vector<unsigned char> &x) {
-    input = vector<double>(x.begin(),x.end());
-    y1 = vector<double>(hidden_dim, 0);
-    z1 = vector<double>(hidden_dim, 0);
-    y2 = vector<double>(output_dim, 0);
-    z2 = vector<double>(output_dim, 0);
 
-    double* d_input;
-    double* d_W1;
-    double* d_y1;
-    double* d_b1;
-    double* d_z1;
-    double* d_W2;
-    double* d_y2;
-    double* d_b2;
-    double* d_z2;
-
-    cudaMalloc((void**)&d_input, input.size() * sizeof(double));
-    cudaMalloc((void**)&d_W1, W1.size() * sizeof(double));
-    cudaMalloc((void**)&d_y1, y1.size() * sizeof(double));
-    cudaMalloc((void**)&d_b1, b1.size() * sizeof(double));
-    cudaMalloc((void**)&d_z1, z1.size() * sizeof(double));
-    cudaMalloc((void**)&d_W2, W2.size() * sizeof(double));
-    cudaMalloc((void**)&d_y2, y2.size() * sizeof(double));
-    cudaMalloc((void**)&d_b2, b2.size() * sizeof(double));
-    cudaMalloc((void**)&d_z2, z2.size() * sizeof(double));
-
-    cudaMemcpy(d_input, input.data(), input.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W1, W1.data(), W1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y1, y1.data(), y1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b1, b1.data(), b1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_z1, z1.data(), z1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W2, W2.data(), W2.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y2, y2.data(), y2.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b2, b2.data(), b2.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_z2, z2.data(), z2.size() * sizeof(double), cudaMemcpyHostToDevice);
-
-    int block_size = 256;
-    int num_blocks = (hidden_dim + block_size - 1) / block_size;
-    forward_kernel<<<num_blocks, block_size>>>(d_input, d_W1, d_y1, d_b1, d_z1, d_W2, d_y2, d_b2, d_z2, input_dim, hidden_dim, output_dim);
-
-    cudaMemcpy(y1.data(), d_y1, y1.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(z1.data(), d_z1, z1.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(y2.data(), d_y2, y2.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(z2.data(), d_z2, z2.size() * sizeof(double), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_input);
-    cudaFree(d_W1);
-    cudaFree(d_y1);
-    cudaFree(d_b1);
-    cudaFree(d_z1);
-    cudaFree(d_W2);
-    cudaFree(d_y2);
-    cudaFree(d_b2);
-    cudaFree(d_z2);
-
-    return z2;
-}
-
-__global__ void backward_kernel(double* b2_grad, double* W2_grad, double* b1_grad, double* W1_grad, const double* y, const double* y_hat, const double* z1, const double* input, int hidden_dim, int output_dim, int input_dim) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// Backward CUDA function
+__device__ void Device_MLP_CUDA::backward(double* y_label, double* input, int idx) {
+    // int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < output_dim) {
-        b2_grad[idx] = d_softmax_cross_entropy(y[idx], y_hat[idx]);
+        d_b2_grad[idx] = d_softmax_cross_entropy(y_label[idx], d_z2[idx]);      // softmax cross entropy gradient
         for (int j = 0; j < hidden_dim; ++j) {
-            W2_grad[idx * hidden_dim + j] = b2_grad[idx] * z1[j];
+            d_W2_grad[idx * hidden_dim + j] = d_b2_grad[idx] * d_z1[j];       // outer product
         }
     }
     if (idx < hidden_dim) {
         double sum = 0;
         for (int i = 0; i < output_dim; ++i) {
-            sum += W2[i][idx] * b2_grad[i];
+            sum += d_W2[i * hidden_dim + idx] * d_b2_grad[i];  //! W2 is transposed, and then matrix multiplication with b2_grad
         }
-        b1_grad[idx] = sum * d_sigmoid(y1[idx]);
+        d_b1_grad[idx] = sum * d_sigmoid(d_y1[idx]);        // sigmoid gradient of y1, and then vector multiplication
         for (int j = 0; j < input_dim; ++j) {
-            W1_grad[idx * input_dim + j] = b1_grad[idx] * input[j];
+            d_W1_grad[idx * input_dim + j] = d_b1_grad[idx] * input[j];   // outer product, need to use input data
         }
     }
 }
 
-void MLP_CUDA::backward(const vector<double> &y, const vector<double> &y_hat) {
-    double* d_b2_grad;
-    double* d_W2_grad;
-    double* d_b1_grad;
-    double* d_W1_grad;
-    double* d_y;
-    double* d_y_hat;
-    double* d_z1;
-    double* d_input;
 
-    cudaMalloc((void**)&d_b2_grad, b2_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_W2_grad, W2_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_b1_grad, b1_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_W1_grad, W1_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_y, y.size() * sizeof(double));
-    cudaMalloc((void**)&d_y_hat, y_hat.size() * sizeof(double));
-    cudaMalloc((void**)&d_z1, z1.size() * sizeof(double));
-    cudaMalloc((void**)&d_input, input.size() * sizeof(double));
-
-    cudaMemcpy(d_b2_grad, b2_grad.data(), b2_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W2_grad, W2_grad.data(), W2_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b1_grad, b1_grad.data(), b1_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W1_grad, W1_grad.data(), W1_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y, y.data(), y.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_y_hat, y_hat.data(), y_hat.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_z1, z1.data(), z1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_input, input.data(), input.size() * sizeof(double), cudaMemcpyHostToDevice);
-
-    int block_size = 256;
-    int num_blocks = (output_dim + block_size - 1) / block_size;
-    backward_kernel<<<num_blocks, block_size>>>(d_b2_grad, d_W2_grad, d_b1_grad, d_W1_grad, d_y, d_y_hat, d_z1, d_input, hidden_dim, output_dim, input_dim);
-
-    cudaMemcpy(b2_grad.data(), d_b2_grad, b2_grad.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(W2_grad.data(), d_W2_grad, W2_grad.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(b1_grad.data(), d_b1_grad, b1_grad.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(W1_grad.data(), d_W1_grad, W1_grad.size() * sizeof(double), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_b2_grad);
-    cudaFree(d_W2_grad);
-    cudaFree(d_b1_grad);
-    cudaFree(d_W1_grad);
-    cudaFree(d_y);
-    cudaFree(d_y_hat);
-    cudaFree(d_z1);
-    cudaFree(d_input);
-}
-
-__global__ void update_kernel(double* weights, double* gradients, double lr, int size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size) {
-        weights[idx] -= lr * gradients[idx];
+__device__ void Device_MLP_CUDA::update(double lr, int idx) {
+    // int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < hidden_dim * input_dim) {
+        d_W1[idx] -= lr * d_W1_grad[idx];   // update W1
+    }
+    if (idx < output_dim * hidden_dim) {
+        d_W2[idx] -= lr * d_W2_grad[idx];   // update W2
+    }
+    if (idx < hidden_dim) {
+        d_b1[idx] -= lr * d_b1_grad[idx];   // update b1
+    }
+    if (idx < output_dim) {
+        d_b2[idx] -= lr * d_b2_grad[idx];   // update b2
     }
 }
 
-void MLP_CUDA::update(double lr) {
-    double* d_W1;
-    double* d_W1_grad;
-    double* d_b1;
-    double* d_b1_grad;
-    double* d_W2;
-    double* d_W2_grad;
-    double* d_b2;
-    double* d_b2_grad;
-
-    cudaMalloc((void**)&d_W1, W1.size() * sizeof(double));
-    cudaMalloc((void**)&d_W1_grad, W1_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_b1, b1.size() * sizeof(double));
-    cudaMalloc((void**)&d_b1_grad, b1_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_W2, W2.size() * sizeof(double));
-    cudaMalloc((void**)&d_W2_grad, W2_grad.size() * sizeof(double));
-    cudaMalloc((void**)&d_b2, b2.size() * sizeof(double));
-    cudaMalloc((void**)&d_b2_grad, b2_grad.size() * sizeof(double));
-
-    cudaMemcpy(d_W1, W1.data(), W1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W1_grad, W1_grad.data(), W1_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b1, b1.data(), b1.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b1_grad, b1_grad.data(), b1_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W2, W2.data(), W2.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_W2_grad, W2_grad.data(), W2_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b2, b2.data(), b2.size() * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b2_grad, b2_grad.data(), b2_grad.size() * sizeof(double), cudaMemcpyHostToDevice);
-
-    int block_size = 256;
-    int num_blocks = (W1.size() + block_size - 1) / block_size;
-    update_kernel<<<num_blocks, block_size>>>(d_W1, d_W1_grad, lr, W1.size());
-
-    num_blocks = (b1.size() + block_size - 1) / block_size;
-    update_kernel<<<num_blocks, block_size>>>(d_b1, d_b1_grad, lr, b1.size());
-
-    num_blocks = (W2.size() + block_size - 1) / block_size;
-    update_kernel<<<num_blocks, block_size>>>(d_W2, d_W2_grad, lr, W2.size());
-
-    num_blocks = (b2.size() + block_size - 1) / block_size;
-    update_kernel<<<num_blocks, block_size>>>(d_b2, d_b2_grad, lr, b2.size());
-
-    cudaMemcpy(W1.data(), d_W1, W1.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(b1.data(), d_b1, b1.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(W2.data(), d_W2, W2.size() * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(b2.data(), d_b2, b2.size() * sizeof(double), cudaMemcpyDeviceToHost);
-
+Device_MLP_CUDA::~Device_MLP_CUDA(){
     cudaFree(d_W1);
-    cudaFree(d_W1_grad);
-    cudaFree(d_b1);
-    cudaFree(d_b1_grad);
     cudaFree(d_W2);
-    cudaFree(d_W2_grad);
+    cudaFree(d_b1);
     cudaFree(d_b2);
+    cudaFree(d_W1_grad);
+    cudaFree(d_W2_grad);
+    cudaFree(d_b1_grad);
     cudaFree(d_b2_grad);
+    cudaFree(d_y1);
+    cudaFree(d_z1);
+    cudaFree(d_y2);
+    cudaFree(d_z2);
 }
 
-MLP_CUDA::~MLP_CUDA() = default;
+// this function is used in host machine. this step is necessary.
+void freeDeviceMemory(Device_MLP_CUDA& device_mlp){
+    if (device_mlp.d_W1 != nullptr) cudaFree(device_mlp.d_W1);
+    if (device_mlp.d_W2 != nullptr) cudaFree(device_mlp.d_W2);
+    if (device_mlp.d_b1 != nullptr) cudaFree(device_mlp.d_b1);
+    if (device_mlp.d_b2 != nullptr) cudaFree(device_mlp.d_b2);
+    if (device_mlp.d_W1_grad != nullptr) cudaFree(device_mlp.d_W1_grad);
+    if (device_mlp.d_W2_grad != nullptr) cudaFree(device_mlp.d_W2_grad);
+    if (device_mlp.d_b1_grad != nullptr) cudaFree(device_mlp.d_b1_grad);
+    if (device_mlp.d_b2_grad != nullptr) cudaFree(device_mlp.d_b2_grad);
+    if (device_mlp.d_y1 != nullptr) cudaFree(device_mlp.d_y1);
+    if (device_mlp.d_z1 != nullptr) cudaFree(device_mlp.d_z1);
+    if (device_mlp.d_y2 != nullptr) cudaFree(device_mlp.d_y2);
+    if (device_mlp.d_z2 != nullptr) cudaFree(device_mlp.d_z2);
+}

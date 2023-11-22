@@ -4,21 +4,49 @@
 #include <vector>
 #include <cuda_functions.h>
 
-class MLP_CUDA {
+class Host_MLP_CUDA {
 public:
-    MLP_CUDA(int input_dim, int hidden_dim, int output_dim);
+    Host_MLP_CUDA(int input_dim, int hidden_dim, int output_dim);
 
-    void forward(const std::vector<unsigned char> &);
+    // weights and bias
+    std::vector<std::vector<double>> W1;
+    std::vector<std::vector<double>> W2;
+    std::vector<double> b1;
+    std::vector<double> b2;
+    std::vector<std::vector<double>> W1_grad;
+    std::vector<std::vector<double>> W2_grad;
+    std::vector<double> b1_grad;
+    std::vector<double> b2_grad;
 
-    void zero_grad();
+    // inner variables
+    std::vector<double> y1;
+    std::vector<double> z1;
+    std::vector<double> y2;
+    std::vector<double> z2;
 
-    void backward(const std::vector<double> &y, const std::vector<double> &y_hat);
+    // 1D array for CUDA
+    std::vector<double> W1_1D;
+    std::vector<double> W2_1D;
+    std::vector<double> W1_grad_1D;
+    std::vector<double> W2_grad_1D;
 
-    void update(double lr);
+    ~Host_MLP_CUDA();
+}
 
-    ~MLP_CUDA();
+class Device_MLP_CUDA {
+public:
+    Device_MLP_CUDA(int input_dim, int hidden_dim, int output_dim);
 
-private:
+    __device__ void forward(double* input, int idx);
+
+    __device__ void zero_grad();
+
+    __device__ void backward(double* y_label, double* input, int idx);
+
+    __device__ void update(double lr, int idx);
+
+    ~Device_MLP_CUDA();
+
     int input_dim;
     int hidden_dim;
     int output_dim;
@@ -30,9 +58,13 @@ private:
     double* d_W2_grad;    // 2D
     double* d_b1_grad;
     double* d_b2_grad;
-    double* d_input;
-    double y1;
-    double z1;
+    double* d_y1;
+    double* d_z1;
+    double* d_y2;
+    double* d_z2;
 };
+
+void copyDataToDevice(Host_MLP_CUDA& host_mlp, Device_MLP_CUDA& device_mlp);
+void freeDeviceMemory(Device_MLP_CUDA& device_mlp);
 
 #endif //CUDA_MLP_H_
