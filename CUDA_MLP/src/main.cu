@@ -7,7 +7,6 @@
 #include "mnist_reader_less.h"
 #include "mlp.h"
 #include "functions.h"
-#include "cuda_functions.h"
 #include "cuda_mlp.h"
 // #include <cuda_runtime.h>
 
@@ -55,23 +54,6 @@ void train(double learning_rate, int epoch_num, int hidden_dim, const string &da
             mlp.update(learning_rate);
         }
     }
-}
-
-// main CUDA kernel
-__global__ void train_mlp_cuda(Device_MLP_CUDA& mlp_cuda,  double* input, double* labels, double lr) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    // Forward pass
-    mlp_cuda.forward(input, idx);
-
-    // clear gradients
-    mlp_cuda.zero_grad();
-
-    // Backward pass
-    mlp_cuda.backward(labels, input, idx);
-
-    // Update weights and biases
-    mlp_cuda.update(lr, idx);
 }
 
 

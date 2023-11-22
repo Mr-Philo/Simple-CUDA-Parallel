@@ -2,7 +2,6 @@
 #define CUDA_MLP_H_
 
 #include <vector>
-#include <cuda_functions.h>
 
 class Host_MLP_CUDA {
 public:
@@ -31,7 +30,7 @@ public:
     std::vector<double> W2_grad_1D;
 
     ~Host_MLP_CUDA();
-}
+};
 
 class Device_MLP_CUDA {
 public:
@@ -64,7 +63,17 @@ public:
     double* d_z2;
 };
 
+__global__ void train_mlp_cuda(Device_MLP_CUDA mlp_cuda,  double* input, double* labels, double lr);
+
 void copyDataToDevice(Host_MLP_CUDA& host_mlp, Device_MLP_CUDA& device_mlp);
 void freeDeviceMemory(Device_MLP_CUDA& device_mlp);
+
+__device__ double sigmoid(double x);
+__device__ double d_sigmoid(double x);
+__device__ double softmax(double x);
+__device__ double d_softmax_cross_entropy(double y, double y_hat);
+
+double random(double min, double max);
+std::vector<double> matrix_to_array(const std::vector<std::vector<double>> &matrix);
 
 #endif //CUDA_MLP_H_

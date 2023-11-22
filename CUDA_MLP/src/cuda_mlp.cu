@@ -2,6 +2,55 @@
 #include <cuda_runtime.h>
 using namespace std;
 
+// move the following functions from cuda_funtions.cu here
+__device__ double cu_sigmoid(double x) {
+    return 1 / (1 + exp(-x));
+}
+
+__device__ double cu_d_sigmoid(double x) {
+    double sigmoid_x = cu_sigmoid(x);
+    return sigmoid_x * (1 - sigmoid_x);
+}
+
+__device__ double cu_softmax(double x) {
+    return exp(x);
+}
+
+__device__ double cu_d_softmax_cross_entropy(double y, double y_hat) {
+    return y_hat - y;
+}
+
+// non-CUDA functions
+double cu_random(double min, double max) {
+    return min + (max - min) * rand() / (RAND_MAX + 1.0);
+}
+
+// change matrix to array (2D matrix can not be passed to GPU)
+std::vector<double> matrix_to_array(const std::vector<std::vector<double>> &matrix) {  
+  std::vector<double> array;  
+  for (const auto &row : matrix) {  
+    array.insert(array.end(), row.begin(), row.end());  
+  }  
+  return array;  
+}  
+
+// main CUDA kernel
+__global__ void train_mlp_cuda(Device_MLP_CUDA mlp_cuda,  double* input, double* labels, double lr) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Forward pass
+    mlp_cuda.forward(input, idx);
+
+    // clear gradients
+    mlp_cuda.zero_grad();
+
+    // Backward pass
+    mlp_cuda.backward(labels, input, idx);
+
+    // Update weights and biases
+    mlp_cuda.update(lr, idx);
+}
+
 // definition of Host MLP class
 Host_MLP_CUDA::Host_MLP_CUDA(int input_dim, int hidden_dim, int output_dim){
     // Randomly initialize the weights and biases (the same as CPU)
@@ -13,19 +62,19 @@ Host_MLP_CUDA::Host_MLP_CUDA(int input_dim, int hidden_dim, int output_dim){
     // initialize W1, W2, b1, b2
     for(int i = 0;i<hidden_dim;i++){
         for (int j = 0; j < input_dim; ++j) {
-            W1[i][j] = random(-1,1);
+            W1[i][j] = cu_random(-1,1);
         }
     }
     for(int i = 0;i<output_dim;i++){
         for (int j = 0; j < hidden_dim; ++j) {
-            W2[i][j] = random(-1,1);
+            W2[i][j] = cu_random(-1,1);
         }
     }
     for(int i = 0; i<hidden_dim; i++) {
-        b1[i] = random(-1,1);
+        b1[i] = cu_random(-1,1);
     }
     for (int i = 0; i < output_dim; ++i) {
-        b2[i] = random(-1,1);
+        b2[i] = cu_random(-1,1);
     }
 
     // Initialize the gradients
@@ -117,7 +166,7 @@ __device__ void Device_MLP_CUDA::forward(double* input, int idx) {
             sum += d_W1[idx * input_dim + j] * input[j];  // matrix-vector multiplication
         }
         d_y1[idx] = sum + d_b1[idx];        // vector add
-        d_z1[idx] = sigmoid(d_y1[idx]);     // activation function (sigmoid)
+        d_z1[idx] = cu_sigmoid(d_y1[idx]);     // activation function (sigmoid)
     }
     // first hidden layer -> output
     double out_sum = 0;
@@ -128,7 +177,19 @@ __device__ void Device_MLP_CUDA::forward(double* input, int idx) {
         }
         d_y2[idx] = sum + d_b2[idx];            // vector add
         d_z2[idx] = exp(d_y2[idx]);             // activation function
-        atomicAdd(&out_sum, d_z2[idx]);         // ! wait until all threads finish
+    }
+    __syncthreads();
+    // Calculate the sum of d_z2 elements using parallel reduction
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (idx < stride && idx + stride < output_dim) {
+            d_z2[idx] += d_z2[idx + stride];
+        }
+        __syncthreads();
+    }
+
+    // Store the sum in out_sum
+    if (idx == 0) {
+        out_sum = d_z2[0];
     }
     __syncthreads();
     if (idx < output_dim) {
@@ -143,7 +204,7 @@ __device__ void Device_MLP_CUDA::forward(double* input, int idx) {
 __device__ void Device_MLP_CUDA::backward(double* y_label, double* input, int idx) {
     // int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < output_dim) {
-        d_b2_grad[idx] = d_softmax_cross_entropy(y_label[idx], d_z2[idx]);      // softmax cross entropy gradient
+        d_b2_grad[idx] = cu_d_softmax_cross_entropy(y_label[idx], d_z2[idx]);      // softmax cross entropy gradient
         for (int j = 0; j < hidden_dim; ++j) {
             d_W2_grad[idx * hidden_dim + j] = d_b2_grad[idx] * d_z1[j];       // outer product
         }
@@ -153,7 +214,7 @@ __device__ void Device_MLP_CUDA::backward(double* y_label, double* input, int id
         for (int i = 0; i < output_dim; ++i) {
             sum += d_W2[i * hidden_dim + idx] * d_b2_grad[i];  //! W2 is transposed, and then matrix multiplication with b2_grad
         }
-        d_b1_grad[idx] = sum * d_sigmoid(d_y1[idx]);        // sigmoid gradient of y1, and then vector multiplication
+        d_b1_grad[idx] = sum * cu_d_sigmoid(d_y1[idx]);        // sigmoid gradient of y1, and then vector multiplication
         for (int j = 0; j < input_dim; ++j) {
             d_W1_grad[idx * input_dim + j] = d_b1_grad[idx] * input[j];   // outer product, need to use input data
         }
