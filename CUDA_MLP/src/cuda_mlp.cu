@@ -35,7 +35,7 @@ std::vector<double> matrix_to_array(const std::vector<std::vector<double>> &matr
 }  
 
 // main CUDA kernel
-__global__ void train_mlp_cuda(Device_MLP_CUDA mlp_cuda,  double* input, double* labels, double lr) {
+__global__ void train_mlp_cuda(Device_MLP_CUDA& mlp_cuda,  double* input, double* labels, double lr) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     // Forward pass

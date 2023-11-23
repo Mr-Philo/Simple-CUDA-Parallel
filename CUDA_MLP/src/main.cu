@@ -81,6 +81,7 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
     for (int epoch = 0; epoch < epoch_num; epoch++) {
         vector<double> losses;
         for (int i = 0; i < training_images.size(); i++) {
+            printf("Iteration: %d\n", i);
             auto x = training_images[i];        // type of x: vector<unsigned char>
             auto l = training_labels[i];
             vector<double> y_label(10, 0);
@@ -89,8 +90,8 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
 
             // Copy input data and labels to device memory
             double *d_x, *d_y;
-            cudaMalloc(&d_x, input.size() * sizeof(double));
-            cudaMalloc(&d_y, y_label.size() * sizeof(double));
+            cudaMalloc((void **)&d_x, input.size() * sizeof(double));
+            cudaMalloc((void **)&d_y, y_label.size() * sizeof(double));
             cudaMemcpy(d_x, input.data(), input.size() * sizeof(double), cudaMemcpyHostToDevice);
             err = cudaMemcpy(d_y, y_label.data(), y_label.size() * sizeof(double), cudaMemcpyHostToDevice);
             if (err != cudaSuccess) {  
@@ -105,13 +106,27 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             train_mlp_cuda<<<num_of_blocks, block_size>>>(d_mlp_cuda, d_x, d_y, learning_rate);
             err = cudaGetLastError();  
             if (err != cudaSuccess) {  
-                printf("Failed to launch train_mlp_cuda kernel: %s\n", cudaGetErrorString(err));  
+                printf("Failed to launch train_mlp_cuda kernel: %s\n", cudaGetErrorString(err));        // 从第二次循环才开始fail
+                exit(0); 
             }
             // compute loss
             cudaMemcpy(h_mlp_cuda.z2.data(), d_mlp_cuda.d_z2, h_mlp_cuda.z2.size() * sizeof(double), cudaMemcpyDeviceToHost);
             
             auto loss = cross_entropy(y_label, h_mlp_cuda.z2);
+            // Print y_label and h_mlp_cuda.z2
+            printf("y_label: ");        // 正确
+            for (int j = 0; j < y_label.size(); j++) {
+                printf("%f ", y_label[j]);
+            }
+            printf("\n");
+
+            printf("h_mlp_cuda.z2: ");      // 全0，不符合预期
+            for (int j = 0; j < h_mlp_cuda.z2.size(); j++) {
+                printf("%f ", h_mlp_cuda.z2[j]);
+            }
+            printf("\n");
             losses.push_back(loss);
+            // printf("we got here\n");
             if (i % 1000 == 0) {
                 double sum = 0;
                 for (auto &l: losses) {

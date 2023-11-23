@@ -63,7 +63,7 @@ public:
     double* d_z2;
 };
 
-__global__ void train_mlp_cuda(Device_MLP_CUDA mlp_cuda,  double* input, double* labels, double lr);
+__global__ void train_mlp_cuda(Device_MLP_CUDA& mlp_cuda,  double* input, double* labels, double lr);
 
 void copyDataToDevice(Host_MLP_CUDA& host_mlp, Device_MLP_CUDA& device_mlp);
 void freeDeviceMemory(Device_MLP_CUDA& device_mlp);
