@@ -130,27 +130,36 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             }
             printf("forward 1 success\n");
 
-            one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_y1, d_W2, d_b2, d_y2, d_z2, hidden_dim, output_dim);          // first hidden layer -> output
+            one_layer_forward_softmax_kernel<<<1, output_dim>>>(d_y1, d_W2, d_b2, d_y2, d_z2, hidden_dim, output_dim);          // first hidden layer -> output
             softmax_normalization_kernel<<<1, 1>>>(d_z2, output_dim);          // add softmax normalization
             printf("forward 2 success\n");
 
             // zero grad
-            set_zero_matrix_kernel<<<1, hidden_dim * input_dim>>>(d_W1, input_dim, hidden_dim);
-            set_zero_matrix_kernel<<<1, hidden_dim>>>(d_b1, 1, hidden_dim);
-            set_zero_matrix_kernel<<<1, output_dim * hidden_dim>>>(d_W2, hidden_dim, output_dim);
-            set_zero_matrix_kernel<<<1, output_dim>>>(d_b2, 1, output_dim);
+            int threads_per_block = 256;
+            int num_blocks = (hidden_dim * input_dim + threads_per_block - 1) / threads_per_block;
+            set_zero_matrix_kernel<<<num_blocks, threads_per_block>>>(d_W1, input_dim, hidden_dim);
+            num_blocks = (hidden_dim + threads_per_block - 1) / threads_per_block;
+            set_zero_matrix_kernel<<<num_blocks, threads_per_block>>>(d_b1, 1, hidden_dim);
+            num_blocks = (output_dim * hidden_dim + threads_per_block - 1) / threads_per_block;
+            set_zero_matrix_kernel<<<num_blocks, threads_per_block>>>(d_W2, hidden_dim, output_dim);
+            num_blocks = (output_dim + threads_per_block - 1) / threads_per_block;
+            set_zero_matrix_kernel<<<num_blocks, threads_per_block>>>(d_b2, 1, output_dim);
             printf("zero grad success\n");
 
             // backward
-            one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_y2, d_z2, d_y_label, d_W2_grad, d_b2_grad, hidden_dim, output_dim);          // output -> first hidden layer
-            one_layer_backward_sigmoid_kernel<<<1, hidden_dim>>>(d_y1, d_W1, d_b1_grad, d_W1_grad, d_b1, d_input, input_dim, hidden_dim);          // first hidden layer -> input
+            one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_z1, d_z2, d_y_label, d_W2_grad, d_b2_grad, hidden_dim, output_dim);          // output -> first hidden layer
+            one_layer_backward_sigmoid_kernel<<<1, hidden_dim>>>(d_input, d_y1, d_W2, d_b2_grad, d_W1_grad, d_b1_grad, input_dim, hidden_dim, output_dim);          // first hidden layer -> input
             printf("backward success\n");
 
             // update
-            matrix_update_kernel<<<1, hidden_dim * input_dim>>>(d_W1, d_W1_grad, learning_rate, input_dim, hidden_dim);
-            matrix_update_kernel<<<1, hidden_dim>>>(d_b1, d_b1_grad, learning_rate, 1, hidden_dim);
-            matrix_update_kernel<<<1, output_dim * hidden_dim>>>(d_W2, d_W2_grad, learning_rate, hidden_dim, output_dim);
-            matrix_update_kernel<<<1, output_dim>>>(d_b2, d_b2_grad, learning_rate, 1, output_dim);
+            num_blocks = (hidden_dim * input_dim + threads_per_block - 1) / threads_per_block;
+            matrix_update_kernel<<<num_blocks, threads_per_block>>>(d_W1, d_W1_grad, learning_rate, input_dim, hidden_dim);
+            num_blocks = (hidden_dim + threads_per_block - 1) / threads_per_block;
+            matrix_update_kernel<<<num_blocks, threads_per_block>>>(d_b1, d_b1_grad, learning_rate, 1, hidden_dim);
+            num_blocks = (output_dim * hidden_dim + threads_per_block - 1) / threads_per_block;
+            matrix_update_kernel<<<num_blocks, threads_per_block>>>(d_W2, d_W2_grad, learning_rate, hidden_dim, output_dim);
+            num_blocks = (output_dim + threads_per_block - 1) / threads_per_block;
+            matrix_update_kernel<<<num_blocks, threads_per_block>>>(d_b2, d_b2_grad, learning_rate, 1, output_dim);
             printf("update success\n");
 
             // copy output data from device

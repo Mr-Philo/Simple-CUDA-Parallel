@@ -42,8 +42,8 @@ __global__ void vector_add(double* vector1, double* vector2, double* result, int
 __global__ void one_layer_forward_sigmoid_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col);
 __global__ void one_layer_forward_softmax_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col);
 __global__ void softmax_normalization_kernel(double* z, int size);
-__global__ void one_layer_backward_sigmoid_kernel(double* y, double* W, double* b_grad, double* W_grad, double* b, double* input, int row, int col);
-__global__ void one_layer_backward_softmax_kernel(double* y, double* z, double* y_label, double* W_grad, double* b_grad, int row, int col);
+__global__ void one_layer_backward_sigmoid_kernel(double* input, double* y_output, double* W_next, double* b_grad_next, double* W_grad, double* b_grad, int row, int col, int next_col);
+__global__ void one_layer_backward_softmax_kernel(double* input, double* output, double* y_label, double* W_grad, double* b_grad, int row, int col);
 __global__ void matrix_update_kernel(double* W, double* W_grad, double lr, int row, int col);
 
 #endif //CUDA_MLP_H_

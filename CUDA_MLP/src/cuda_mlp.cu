@@ -191,14 +191,14 @@ __global__ void one_layer_forward_sigmoid_kernel(double* input, double* W, doubl
         y[idx] = sum + b[idx];
         z[idx] = 1 / (1 + exp(-y[idx]));        // sigmoid function
     }
-    if (idx == 0) {     // check whether y is null
-        printf("----cuda----\n");
-        printf(input==NULL?"input is null\n":"input is not null\n");
-        printf(W==NULL?"W is null\n":"W is not null\n");
-        printf(b==NULL?"b is null\n":"b is not null\n");
-        printf(y==NULL?"y is null\n":"y is not null\n");
-        printf(z==NULL?"z is null\n":"z is not null\n");
-    }
+    // if (idx == 0) {     // check whether y is null
+    //     printf("----cuda----\n");
+    //     printf(input==NULL?"input is null\n":"input is not null\n");
+    //     printf(W==NULL?"W is null\n":"W is not null\n");
+    //     printf(b==NULL?"b is null\n":"b is not null\n");
+    //     printf(y==NULL?"y is null\n":"y is not null\n");
+    //     printf(z==NULL?"z is null\n":"z is not null\n");
+    // }
     // printf("idx: %d, row: %d, col: %d\n", threadIdx.x, row, col);
 }
 
@@ -227,29 +227,46 @@ __global__ void softmax_normalization_kernel(double* z, int size){
     }
 }
 
-__global__ void one_layer_backward_sigmoid_kernel(double* y, double* W, double* b_grad, double* W_grad, double* b, double* input, int row, int col) {
+__global__ void one_layer_backward_sigmoid_kernel(double* input, double* y_output, double* W_next, double* b_grad_next, double* W_grad, double* b_grad, int row, int col, int next_col) {
+    // in back propagation, we need to use the output of the next layer to calculate the gradient of the current layer
+    // row: input_dim, col: hidden_dim. next_row and next_col are the dim of the next layer, but here we got next_row = col
+
     int idx = threadIdx.x;
-    if (idx < row) {
-        b_grad[idx] = cu_d_sigmoid(y[idx]);
-        for (int j = 0; j < col; ++j) {
-            W_grad[idx * col + j] = b_grad[idx] * input[j];
+    if (idx < col) {
+        double part_L_to_y = 0;     // part_L_to_y should be a matrix with dim (hidden_dim, 1), the same shape as y
+        for (int j = 0; j < next_col; ++j) {        //! need to use 'next_col': the dim of the next layer
+            part_L_to_y += W_next[j * col + idx] * b_grad_next[j];      // part_L_to_y = W_next(T) * b_grad_next
+        }
+        // vector dot product between part_L_to_y and the derivative of sigmoid function
+        b_grad[idx] = part_L_to_y * cu_d_sigmoid(y_output[idx]);    // d_sigmoid = sigmoid * (1 - sigmoid)
+        for (int j = 0; j < row; ++j) {     // matrix outer product
+            W_grad[idx * row + j] = b_grad[idx] * input[j];
         }
     }
-    double sum = 0;
-    for (int i = 0; i < row; ++i) {
-        sum += W[i * col + idx] * b_grad[i];
-    }
-    b[idx] = sum;
 }
 
-__global__ void one_layer_backward_softmax_kernel(double* y, double* z, double* y_label, double* W_grad, double* b_grad, int row, int col) {
+
+__global__ void one_layer_backward_softmax_kernel(double* input, double* output, double* y_label, double* W_grad, double* b_grad, int row, int col) {
+    // here we already now that this layer is the last layer
+    // row: input_dim(hidden_dim here), col: output_dim.
+
     int idx = threadIdx.x;
-    if (idx < row) {
-        b_grad[idx] = cu_d_softmax_cross_entropy(z[idx], y_label[idx]);
-        for (int j = 0; j < col; ++j) {
-            W_grad[idx * col + j] = b_grad[idx] * y[j];
+    if (idx < col) {
+        b_grad[idx] = output[idx] - y_label[idx];    // d_softmax_cross_entropy = y_hat - y
+        for (int j = 0; j < row; ++j) {     // matrix outer product
+            W_grad[idx * row + j] = b_grad[idx] * input[j];
         }
     }
+    // // check whether W_grad is null
+    // if (idx == 0) {
+    //     printf("----cuda backward----\n");
+    //     printf("row: %d, col: %d\n", row, col);
+    //     printf(input==NULL?"input is null\n":"input is not null\n");
+    //     printf(output==NULL?"output is null\n":"output is not null\n");
+    //     printf(y_label==NULL?"y_label is null\n":"y_label is not null\n");
+    //     printf(W_grad==NULL?"W_grad is null\n":"W_grad is not null\n");
+    //     printf(b_grad==NULL?"b_grad is null\n":"b_grad is not null\n");
+    // }
 }
 
 __global__ void matrix_update_kernel(double* W, double* W_grad, double lr, int row, int col) {
