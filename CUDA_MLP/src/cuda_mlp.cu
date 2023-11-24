@@ -147,14 +147,14 @@ void Copy_Device_to_Host(MLP_CUDA* h_mlp_cuda, double* d_W1, double* d_W2, doubl
 }
 
 __global__ void set_zero_matrix_kernel(double* matrix, int row, int col) {
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < row * col) {
         matrix[idx] = 0.0;
     }
 }
 
 __global__ void matrix_vector_mul(double* matrix, double* vector, double* result, int row, int col) {
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < row) {
         double sum = 0;
         for (int j = 0; j < col; ++j) {
@@ -165,7 +165,7 @@ __global__ void matrix_vector_mul(double* matrix, double* vector, double* result
 }
 
 __global__ void matrix_outer_product(double* vector1, double* vector2, double* result, int row, int col) {
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < row) {
         for (int j = 0; j < col; ++j) {
             result[idx * col + j] = vector1[idx] * vector2[j];
@@ -174,7 +174,7 @@ __global__ void matrix_outer_product(double* vector1, double* vector2, double* r
 }
 
 __global__ void vector_add(double* vector1, double* vector2, double* result, int size) {
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < size) {
         result[idx] = vector1[idx] + vector2[idx];
     }
@@ -182,7 +182,7 @@ __global__ void vector_add(double* vector1, double* vector2, double* result, int
 
 __global__ void one_layer_forward_sigmoid_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col) {
     // row: input_dim, col: hidden_dim. input should have dim (1, input_dim). result(z) should have dim (1, hidden_dim)
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < col) {
         double sum = 0;
         for (int j = 0; j < row; ++j) {
@@ -204,7 +204,7 @@ __global__ void one_layer_forward_sigmoid_kernel(double* input, double* W, doubl
 
 __global__ void one_layer_forward_softmax_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col) {
     // row: input_dim, col: hidden_dim. input should have dim (1, input_dim). result(z) should have dim (1, hidden_dim)
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < col) {
         double sum = 0;
         for (int j = 0; j < row; ++j) {
@@ -231,7 +231,7 @@ __global__ void one_layer_backward_sigmoid_kernel(double* input, double* y_outpu
     // in back propagation, we need to use the output of the next layer to calculate the gradient of the current layer
     // row: input_dim, col: hidden_dim. next_row and next_col are the dim of the next layer, but here we got next_row = col
 
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < col) {
         double part_L_to_y = 0;     // part_L_to_y should be a matrix with dim (hidden_dim, 1), the same shape as y
         for (int j = 0; j < next_col; ++j) {        //! need to use 'next_col': the dim of the next layer
@@ -250,7 +250,7 @@ __global__ void one_layer_backward_softmax_kernel(double* input, double* output,
     // here we already now that this layer is the last layer
     // row: input_dim(hidden_dim here), col: output_dim.
 
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < col) {
         b_grad[idx] = output[idx] - y_label[idx];    // d_softmax_cross_entropy = y_hat - y
         for (int j = 0; j < row; ++j) {     // matrix outer product
@@ -271,7 +271,7 @@ __global__ void one_layer_backward_softmax_kernel(double* input, double* output,
 
 __global__ void matrix_update_kernel(double* W, double* W_grad, double lr, int row, int col) {
     // also can be used to update b, just make col = 1
-    int idx = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < row * col) {
         W[idx] -= lr * W_grad[idx];
     }

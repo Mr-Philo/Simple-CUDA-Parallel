@@ -1,4 +1,5 @@
 #include "mlp.h"
+// #include <stdio.h>
 using namespace std;
 
 MLP::MLP(int input_dim, int hidden_dim, int output_dim) {
@@ -47,6 +48,12 @@ void MLP::zero_grad() {
 
 vector<double> MLP::forward(const vector<unsigned char> &x) {
     input = vector<double>(x.begin(),x.end());
+    // // check input
+    // printf("input: ");
+    // for (int i = 0; i < input.size(); ++i) {
+    //     printf("%f ",input[i]);
+    // }
+    // printf("\n");
     y1 = matrix_dot(W1,input);
     vector_add(y1, b1);
     z1 = sigmoid(y1);
