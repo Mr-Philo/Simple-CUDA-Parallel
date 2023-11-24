@@ -37,62 +37,63 @@ std::vector<double> matrix_to_array(const std::vector<std::vector<double>> &matr
 }  
 
 // main CUDA kernel
-__global__ void train_mlp_cuda(MLP_CUDA* mlp_cuda,  double* input, double* labels, double lr) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// __global__ void train_mlp_cuda(MLP_CUDA* mlp_cuda,  double* input, double* labels, double lr) {
+//     // int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//     int idx = threadIdx.x;
 
-    if (idx == 0) {
-        printf("\n-----------------------precheck-----------------------------------\n");
-        printf("input dim: %i\n", mlp_cuda->input_dim);
-        printf("hidden dim: %i\n", mlp_cuda->hidden_dim);
-        printf("output dim: %i\n", mlp_cuda->output_dim);
-        printf("weight W1: \n");
-        for (int i = 0; i < 10; ++i) {printf("%f ", mlp_cuda->W1[i]);}  // only print the first 10 elements
-        printf("\ngrad : \n");
-        for (int i = 0; i < 10; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
-    }
+//     if (idx == 0) {
+//         printf("\n-----------------------precheck-----------------------------------\n");
+//         printf("input dim: %i\n", mlp_cuda->input_dim);
+//         printf("hidden dim: %i\n", mlp_cuda->hidden_dim);
+//         printf("output dim: %i\n", mlp_cuda->output_dim);
+//         printf("weight W1: \n");
+//         for (int i = 0; i < 10; ++i) {printf("%f ", mlp_cuda->W1[i]);}  // only print the first 10 elements
+//         printf("\ngrad : \n");
+//         for (int i = 0; i < 10; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
+//         printf("\nz2: \n");
+//         for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", mlp_cuda->z2[i]);}
+//     }
 
-    // Forward pass
-    forward(mlp_cuda, input, idx);
-    __syncthreads();
-    if (idx == 0) {
-        printf("\n-----------------------forward-----------------------------------\n");
-        printf("check output: ");
-        for (int i = 0; i < mlp_cuda->output_dim; ++i) {
-            printf("%f ", mlp_cuda->z2[i]);
-        }
-    }
-    // clear gradients
-    zero_grad(mlp_cuda);
-    // __syncthreads();
-    // if (idx == 0) {
-    //     printf("\n-----------------------zero_grad-----------------------------------\n");
-    //     printf("check if gradients are cleared: \n");
-    //     for (int i = 0; i < mlp_cuda->hidden_dim * mlp_cuda->input_dim; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
-    // }
+//     // Forward pass
+//     forward(mlp_cuda, input, idx);
+//     __syncthreads();
+//     if (idx == 0) {
+//         printf("\n-----------------------forward-----------------------------------\n");
+//         printf("check output: ");
+//         for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", mlp_cuda->z2[i]);}
+//     }
+//     // clear gradients
+//     zero_grad(mlp_cuda);
+//     // __syncthreads();
+//     // if (idx == 0) {
+//     //     printf("\n-----------------------zero_grad-----------------------------------\n");
+//     //     printf("check if gradients are cleared: \n");
+//     //     for (int i = 0; i < mlp_cuda->hidden_dim * mlp_cuda->input_dim; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
+//     // }
 
-    // Backward pass
-    backward(mlp_cuda, labels, input, idx);
-    __syncthreads();
-    // if (idx == 0) {
-        // printf("\n-----------------------backward-----------------------------------\n");
-    //     printf("check gradients: \n");
-    //     for (int i = 0; i < mlp_cuda->hidden_dim * mlp_cuda->input_dim; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
-    // }
+//     // Backward pass
+//     backward(mlp_cuda, labels, input, idx);
+//     __syncthreads();
+//     // if (idx == 0) {
+//         // printf("\n-----------------------backward-----------------------------------\n");
+//     //     printf("check gradients: \n");
+//     //     for (int i = 0; i < mlp_cuda->hidden_dim * mlp_cuda->input_dim; ++i) {printf("%f ", mlp_cuda->W1_grad[i]);}
+//     // }
 
-    // Update weights and biases
-    update(mlp_cuda, lr, idx);
+//     // Update weights and biases
+//     update(mlp_cuda, lr, idx);
 
-    __syncthreads();
-    if (idx == 0) {
-        printf("\n--------------------------final-----------------------------------------\n");
-        printf("check label: \n");
-        // printf("%f ", labels[0]);
-        // printf("%i ", mlp_cuda->output_dim);    // previous error: output_dim is 0
-        for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", labels[i]);}
-        printf("check output: \n");
-        for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", mlp_cuda->z2[i]);}
-    }
-}
+//     __syncthreads();
+//     if (idx == 0) {
+//         printf("\n--------------------------final-----------------------------------------\n");
+//         printf("check label: \n");
+//         // printf("%f ", labels[0]);
+//         // printf("%i ", mlp_cuda->output_dim);    // previous error: output_dim is 0
+//         for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", labels[i]);}
+//         printf("check output: \n");
+//         for (int i = 0; i < mlp_cuda->output_dim; ++i) {printf("%f ", mlp_cuda->z2[i]);}
+//     }
+// }
 
 // init Host MLP
 void Init_Host_MLP(MLP_CUDA* mlp_cuda, int input_dim, int hidden_dim, int output_dim){
@@ -209,6 +210,61 @@ void Init_Device_MLP(MLP_CUDA* h_mlp_cuda, MLP_CUDA** d_mlp_cuda){
 
 }
 
+void Init_Device_MLP_NEW(MLP_CUDA* h_mlp_cuda, MLP_CUDA* d_mlp_cuda){
+    // 这个函数只将d_mlp_cuda结构体内的各数据分配空间及拷贝到GPU上，不包括结构体自身
+
+    int input_dim = h_mlp_cuda->input_dim;
+    int hidden_dim = h_mlp_cuda->hidden_dim;
+    int output_dim = h_mlp_cuda->output_dim;
+    cudaMemcpy(&(d_mlp_cuda->input_dim), &(h_mlp_cuda->input_dim), sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->hidden_dim), &(h_mlp_cuda->hidden_dim), sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->output_dim), &(h_mlp_cuda->output_dim), sizeof(int), cudaMemcpyHostToDevice);
+
+    // allocate memory for the double array in the device MLP
+    double *d_W1, *d_W2, *d_b1, *d_b2, *d_W1_grad, *d_W2_grad, *d_b1_grad, *d_b2_grad, *d_y1, *d_z1, *d_y2, *d_z2;
+    cudaMalloc((void**)&d_W1, hidden_dim * input_dim * sizeof(double));
+    cudaMalloc((void**)&d_W2, output_dim * hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_b1, hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_b2, output_dim * sizeof(double));
+    cudaMalloc((void**)&d_W1_grad, hidden_dim * input_dim * sizeof(double));
+    cudaMalloc((void**)&d_W2_grad, output_dim * hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_b1_grad, hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_b2_grad, output_dim * sizeof(double));
+    cudaMalloc((void**)&d_y1, hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_z1, hidden_dim * sizeof(double));
+    cudaMalloc((void**)&d_y2, output_dim * sizeof(double));
+    cudaMalloc((void**)&d_z2, output_dim * sizeof(double));
+    
+    // copy the array data from host to device
+    cudaMemcpy(d_W1, h_mlp_cuda->W1, hidden_dim * input_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_W2, h_mlp_cuda->W2, output_dim * hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b1, h_mlp_cuda->b1, hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b2, h_mlp_cuda->b2, output_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_W1_grad, h_mlp_cuda->W1_grad, hidden_dim * input_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_W2_grad, h_mlp_cuda->W2_grad, output_dim * hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b1_grad, h_mlp_cuda->b1_grad, hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b2_grad, h_mlp_cuda->b2_grad, output_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y1, h_mlp_cuda->y1, hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_z1, h_mlp_cuda->z1, hidden_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_y2, h_mlp_cuda->y2, output_dim * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_z2, h_mlp_cuda->z2, output_dim * sizeof(double), cudaMemcpyHostToDevice);
+
+    // copy the array pointer to the device MLP_struct member pointer
+    cudaMemcpy(&(d_mlp_cuda->W1), &d_W1, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->W2), &d_W2, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->b1), &d_b1, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->b2), &d_b2, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->W1_grad), &d_W1_grad, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->W2_grad), &d_W2_grad, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->b1_grad), &d_b1_grad, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->b2_grad), &d_b2_grad, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->y1), &d_y1, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->z1), &d_z1, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->y2), &d_y2, sizeof(double*), cudaMemcpyHostToDevice);
+    cudaMemcpy(&(d_mlp_cuda->z2), &d_z2, sizeof(double*), cudaMemcpyHostToDevice);
+
+}
+
 void Copy_Device_to_Host(MLP_CUDA* h_mlp_cuda, MLP_CUDA* d_mlp_cuda){
     double *d_W1, *d_W2, *d_b1, *d_b2, *d_W1_grad, *d_W2_grad, *d_b1_grad, *d_b2_grad, *d_y1, *d_z1, *d_y2, *d_z2;
     // get the array pointer from the device MLP pointer
@@ -268,7 +324,99 @@ __device__ void zero_grad(MLP_CUDA* d_mlp_cuda){
 }
 
 
-// TODO: 更新：将CUDA内核缩减至一个，只在main.cpp函数中执行，其中整个流程的主要函数采取_device__的方式，即在CUDA内核中执行
+__global__ void set_zero_matrix_kernel(double* matrix, int row, int col) {
+    int idx = threadIdx.x;
+    if (idx < row * col) {
+        matrix[idx] = 0.0;
+    }
+}
+
+__global__ void matrix_vector_mul(double* matrix, double* vector, double* result, int row, int col) {
+    int idx = threadIdx.x;
+    if (idx < row) {
+        double sum = 0;
+        for (int j = 0; j < col; ++j) {
+            sum += matrix[idx * col + j] * vector[j];
+        }
+        result[idx] = sum;
+    }
+}
+
+__global__ void matrix_outer_product(double* vector1, double* vector2, double* result, int row, int col) {
+    int idx = threadIdx.x;
+    if (idx < row) {
+        for (int j = 0; j < col; ++j) {
+            result[idx * col + j] = vector1[idx] * vector2[j];
+        }
+    }
+}
+
+__global__ void vector_add(double* vector1, double* vector2, double* result, int size) {
+    int idx = threadIdx.x;
+    if (idx < size) {
+        result[idx] = vector1[idx] + vector2[idx];
+    }
+}
+
+__global__ void one_layer_forward_sigmoid_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col) {
+    // row: input_dim, col: hidden_dim. input should have dim (1, input_dim). result(z) should have dim (1, hidden_dim)
+    int idx = threadIdx.x;
+    if (idx < row) {
+        double sum = 0;
+        for (int j = 0; j < col; ++j) {
+            sum += W[idx * col + j] * input[j];
+        }
+        y[idx] = sum + b[idx];
+        z[idx] = cu_sigmoid(y[idx]);
+    }
+}
+
+__global__ void one_layer_forward_softmax_kernel(double* input, double* W, double* b, double* y, double* z, int row, int col) {
+    // row: input_dim, col: hidden_dim. input should have dim (1, input_dim). result(z) should have dim (1, hidden_dim)
+    int idx = threadIdx.x;
+    if (idx < row) {
+        double sum = 0;
+        for (int j = 0; j < col; ++j) {
+            sum += W[idx * col + j] * input[j];
+        }
+        y[idx] = sum + b[idx];
+        z[idx] = cu_softmax(y[idx]);
+    }
+}
+
+__global__ void one_layer_backward_sigmoid_kernel(double* y, double* W, double* b_grad, double* W_grad, double* b, double* input, int row, int col) {
+    int idx = threadIdx.x;
+    if (idx < row) {
+        b_grad[idx] = cu_d_sigmoid(y[idx]);
+        for (int j = 0; j < col; ++j) {
+            W_grad[idx * col + j] = b_grad[idx] * input[j];
+        }
+    }
+    double sum = 0;
+    for (int i = 0; i < row; ++i) {
+        sum += W[i * col + idx] * b_grad[i];
+    }
+    b[idx] = sum;
+}
+
+__global__ void one_layer_backward_softmax_kernel(double* y, double* z, double* y_label, double* W_grad, double* b_grad, int row, int col) {
+    int idx = threadIdx.x;
+    if (idx < row) {
+        b_grad[idx] = cu_d_softmax_cross_entropy(z[idx], y_label[idx]);
+        for (int j = 0; j < col; ++j) {
+            W_grad[idx * col + j] = b_grad[idx] * y[j];
+        }
+    }
+}
+
+__global__ void matrix_update_kernel(double* W, double* W_grad, double lr, int row, int col) {
+    // also can be used to update b, just make col = 1
+    int idx = threadIdx.x;
+    if (idx < row * col) {
+        W[idx] -= lr * W_grad[idx];
+    }
+}
+
 // forward CUDA function
 __device__ void forward(MLP_CUDA* d_mlp_cuda, double* input, int idx) {
 
@@ -280,7 +428,7 @@ __device__ void forward(MLP_CUDA* d_mlp_cuda, double* input, int idx) {
     if (idx < hidden_dim) {
         double sum = 0;
         for (int j = 0; j < input_dim; ++j) {
-            sum += d_mlp_cuda->W1[idx * input_dim + j] * input[j];  // matrix-vector multiplication
+            sum += d_mlp_cuda->W1[idx * hidden_dim + j] * input[j];  // matrix-vector multiplication
         }
         d_mlp_cuda->y1[idx] = sum + d_mlp_cuda->b1[idx];        // vector add
         d_mlp_cuda->z1[idx] = cu_sigmoid(d_mlp_cuda->y1[idx]);     // activation function (sigmoid)
@@ -290,25 +438,27 @@ __device__ void forward(MLP_CUDA* d_mlp_cuda, double* input, int idx) {
     if (idx < output_dim) {
         double sum = 0;
         for (int j = 0; j < hidden_dim; ++j) {
-            sum += d_mlp_cuda->W2[idx * hidden_dim + j] * d_mlp_cuda->z1[j];    // matrix-vector multiplication
+            sum += d_mlp_cuda->W2[idx * output_dim + j] * d_mlp_cuda->z1[j];    // matrix-vector multiplication
         }
         d_mlp_cuda->y2[idx] = sum + d_mlp_cuda->b2[idx];            // vector add
         d_mlp_cuda->z2[idx] = cu_softmax(d_mlp_cuda->y2[idx]);             // activation function
     }
     __syncthreads();
     // Calculate the sum of d_z2 elements using parallel reduction
+    double temp = d_mlp_cuda->z2[0];
     for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
         if (idx < stride && idx + stride < output_dim) {
-            d_mlp_cuda->z2[idx] += d_mlp_cuda->z2[idx + stride];
+            temp += d_mlp_cuda->z2[idx + stride];
         }
         __syncthreads();
     }
 
     // Store the sum in out_sum
     if (idx == 0) {
-        out_sum = d_mlp_cuda->z2[0];
+        out_sum = temp;
     }
     __syncthreads();
+    // if (idx == 0){ printf("out_sum: %f\n", out_sum);}
     if (idx < output_dim) {
         for (int i = 0; i < output_dim; ++i) {
             d_mlp_cuda->z2[idx] = d_mlp_cuda->z2[idx] / out_sum;               // finish softmax

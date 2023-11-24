@@ -12,6 +12,7 @@
 
 using namespace std;
 
+
 void train(double learning_rate, int epoch_num, int hidden_dim, const string &dataset_path) {
     printf("Learning rate: %f, epoch number: %d, hidden dimension: %d, dataset path: %s\n", learning_rate, epoch_num, hidden_dim, dataset_path.c_str());
     // Read the MNIST dataset
@@ -57,6 +58,54 @@ void train(double learning_rate, int epoch_num, int hidden_dim, const string &da
 }
 
 
+double train_mlp_cuda(MLP_CUDA* d_mlp_cuda, double* input, double* labels, double lr){
+    cudaError_t err; 
+    int input_dim = d_mlp_cuda->input_dim;
+    int hidden_dim = d_mlp_cuda->hidden_dim;
+    int output_dim = d_mlp_cuda->output_dim;
+
+    // forward
+    one_layer_forward_sigmoid_kernel<<<1, hidden_dim>>>(input, d_mlp_cuda->W1, d_mlp_cuda->b1, d_mlp_cuda->y1, d_mlp_cuda->z1, input_dim, hidden_dim);          // input -> first hidden layer
+    err = cudaGetLastError();  
+    if (err != cudaSuccess) {  
+        printf("Failed to launch forward kernel: %s\n", cudaGetErrorString(err));        // 从第二次循环才开始fail
+        exit(0); 
+    }
+    one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_mlp_cuda->y1, d_mlp_cuda->W2, d_mlp_cuda->b2, d_mlp_cuda->y2, d_mlp_cuda->z2, hidden_dim, output_dim);          // first hidden layer -> output
+    // add softmax normalization
+    double sum = 0;
+    for (int i = 0; i < output_dim; i++) {sum += d_mlp_cuda->z2[i];}
+    for (int i = 0; i < output_dim; i++) {d_mlp_cuda->z2[i] /= sum;}
+
+    printf("forward success\n");
+    // compute loss
+    vector<double> y_out = vector<double>(d_mlp_cuda->z2, d_mlp_cuda->z2 + d_mlp_cuda->output_dim);
+    vector<double> y_label = vector<double>(labels, labels + d_mlp_cuda->output_dim);
+    double loss = cross_entropy(y_out, y_label);
+    printf("loss: %f\n", loss);
+
+    // zero grad
+    set_zero_matrix_kernel<<<1, hidden_dim * input_dim>>>(d_mlp_cuda->W1, input_dim, hidden_dim);
+    set_zero_matrix_kernel<<<1, hidden_dim>>>(d_mlp_cuda->b1, 1, hidden_dim);
+    set_zero_matrix_kernel<<<1, output_dim * hidden_dim>>>(d_mlp_cuda->W2, hidden_dim, output_dim);
+    set_zero_matrix_kernel<<<1, output_dim>>>(d_mlp_cuda->b2, 1, output_dim);
+    printf("zero grad success\n");
+
+    // backward
+    one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_mlp_cuda->y2, d_mlp_cuda->z2, labels, d_mlp_cuda->W2_grad, d_mlp_cuda->b2_grad, hidden_dim, output_dim);          // output -> first hidden layer
+    one_layer_backward_sigmoid_kernel<<<1, hidden_dim>>>(d_mlp_cuda->y1, d_mlp_cuda->W1, d_mlp_cuda->b1_grad, d_mlp_cuda->W1_grad, d_mlp_cuda->b1, input, input_dim, hidden_dim);          // first hidden layer -> input
+    printf("backward success\n");
+
+    // update
+    matrix_update_kernel<<<1, hidden_dim * input_dim>>>(d_mlp_cuda->W1, d_mlp_cuda->W1_grad, lr, input_dim, hidden_dim);
+    matrix_update_kernel<<<1, hidden_dim>>>(d_mlp_cuda->b1, d_mlp_cuda->b1_grad, lr, 1, hidden_dim);
+    matrix_update_kernel<<<1, output_dim * hidden_dim>>>(d_mlp_cuda->W2, d_mlp_cuda->W2_grad, lr, hidden_dim, output_dim);
+    matrix_update_kernel<<<1, output_dim>>>(d_mlp_cuda->b2, d_mlp_cuda->b2_grad, lr, 1, output_dim);
+    printf("update success\n");
+    
+    return loss;
+}
+
 void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const string &dataset_path) {
     printf("Learning rate: %f, epoch number: %d, hidden dimension: %d, dataset path: %s\n", learning_rate, epoch_num, hidden_dim, dataset_path.c_str());
     // Read the MNIST dataset
@@ -72,65 +121,114 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
     assert(test_images.size() == test_labels.size());
 
     cudaError_t err;  
+    int input_dim = 784;
+    int output_dim = 10;
+
     // Create a neural network with 784 inputs, 100 hidden neurons and 10 outputs
     MLP_CUDA h_mlp_cuda;
-    Init_Host_MLP(&h_mlp_cuda, 784, hidden_dim, 10);
-    MLP_CUDA *d_mlp_cuda;
-    Init_Device_MLP(&h_mlp_cuda, &d_mlp_cuda);
+    Init_Host_MLP(&h_mlp_cuda, input_dim, hidden_dim, output_dim);
+    // MLP_CUDA *d_mlp_cuda;
+    // Init_Device_MLP(&h_mlp_cuda, &d_mlp_cuda);       // when passing struct to GPU, using this function
+    MLP_CUDA d_mlp_cuda_struct;
+    MLP_CUDA *d_mlp_cuda = &d_mlp_cuda_struct;
+    Init_Device_MLP_NEW(&h_mlp_cuda, d_mlp_cuda);       // when not passing struct to GPU, using this function
 
     // Train the network
     for (int epoch = 0; epoch < epoch_num; epoch++) {
         vector<double> losses;
-        for (int i = 0; i < training_images.size(); i++) {
+        for (int iteration = 0; iteration < training_images.size(); iteration++) {
             // printf("Iteration: %d\n", i);
-            auto x = training_images[i];        // type of x: vector<unsigned char>
-            auto l = training_labels[i];
+            auto x = training_images[iteration];        // type of x: vector<unsigned char>
+            auto l = training_labels[iteration];
             vector<double> y_label(10, 0);
             y_label[l] = 1;
             vector<double> input = vector<double>(x.begin(),x.end());
             
             // Copy input data and labels to device memory
-            double *d_x, *d_y;
-            cudaMalloc((void **)&d_x, input.size() * sizeof(double));
-            cudaMalloc((void **)&d_y, y_label.size() * sizeof(double));
-            err = cudaMemcpy(d_x, input.data(), input.size() * sizeof(double), cudaMemcpyHostToDevice);
+            double *d_input, *d_y_label;
+            cudaMalloc((void **)&d_input, input.size() * sizeof(double));
+            cudaMalloc((void **)&d_y_label, y_label.size() * sizeof(double));
+            err = cudaMemcpy(d_input, input.data(), input.size() * sizeof(double), cudaMemcpyHostToDevice);
             if (err != cudaSuccess) {  
                 printf("Failed to copy input data (x) to device: %s\n", cudaGetErrorString(err));  
             }  
-            err = cudaMemcpy(d_y, y_label.data(), y_label.size() * sizeof(double), cudaMemcpyHostToDevice);
+            err = cudaMemcpy(d_y_label, y_label.data(), y_label.size() * sizeof(double), cudaMemcpyHostToDevice);
             if (err != cudaSuccess) {  
                 printf("Failed to copy input data (y) to device: %s\n", cudaGetErrorString(err));  
             }  
+            printf("copy input data to device success\n");
 
             // run the main CUDA kernel
-            int num_of_threads = 256;
-            int input_size = input.size();
-            dim3 block_size(num_of_threads);
-            dim3 num_of_blocks((input_size + num_of_threads - 1) / num_of_threads);
+            // int num_of_threads = 256;
+            // int input_size = input.size();
+            // dim3 block_size(num_of_threads);
+            // // dim3 num_of_blocks((input_size + num_of_threads - 1) / num_of_threads);
 
-            // dim3 block_size(4);
+            // // dim3 block_size(4);
             // dim3 num_of_blocks(1);
 
             // launch the kernel
-            train_mlp_cuda<<<num_of_blocks, block_size>>>(d_mlp_cuda, d_x, d_y, learning_rate);
+            // train_mlp_cuda<<<num_of_blocks, block_size>>>(d_mlp_cuda, d_x, d_y, learning_rate);     //! 直接写成一个大的CUDA kernel并不合理，一方面forward函数中存在数据依赖(softmax函数)，不适合直接并行；另一方面不同层间的计算尺度不同，需要不同的block size和thread size
+
+            //! forward
+            // 按照上面对于d_mlp_cuda的初始化方法，d_mlp_cuda已经完全属于设备端结构体变量了，所以从主机端直接访问是不合法的
+            printf("\n-----------------------precheck-----------------------------------\n");
+            printf("input dim: %i\n", d_mlp_cuda->input_dim);   // 不合法，Error: process didn't terminate successfully；The application may have hit an error when dereferencing Unified Memory from the host.
+            printf("hidden dim: %i\n", d_mlp_cuda->hidden_dim);
+            printf("output dim: %i\n", d_mlp_cuda->output_dim);
+            printf("weight W1: \n");
+            for (int i = 0; i < 10; ++i) {printf("%f ", d_mlp_cuda->W1[i]);}  // only print the first 10 elements
+            printf("\ngrad : \n");
+            for (int i = 0; i < 10; ++i) {printf("%f ", d_mlp_cuda->W1_grad[i]);}
+            printf("\nz2: \n");
+            for (int i = 0; i < d_mlp_cuda->output_dim; ++i) {printf("%f ", d_mlp_cuda->z2[i]);}
+
+            one_layer_forward_sigmoid_kernel<<<1, hidden_dim>>>(d_input, d_mlp_cuda->W1, d_mlp_cuda->b1, d_mlp_cuda->y1, d_mlp_cuda->z1, input_dim, hidden_dim);          // input -> first hidden layer
             err = cudaGetLastError();  
             if (err != cudaSuccess) {  
-                printf("Failed to launch train_mlp_cuda kernel: %s\n", cudaGetErrorString(err));        // 从第二次循环才开始fail
+                printf("Failed to launch forward kernel: %s\n", cudaGetErrorString(err));        // 从第二次循环才开始fail
                 exit(0); 
             }
-            // synchronize device
-            err = cudaDeviceSynchronize();
-            if (err != cudaSuccess) {  
-                printf("Failed to synchronize device: %s\n", cudaGetErrorString(err));
-                exit(0); 
-            }
+            printf("forward success\n");
+            one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_mlp_cuda->y1, d_mlp_cuda->W2, d_mlp_cuda->b2, d_mlp_cuda->y2, d_mlp_cuda->z2, hidden_dim, output_dim);          // first hidden layer -> output
+            // add softmax normalization
+            double sum = 0;
+            for (int i = 0; i < output_dim; i++) {sum += d_mlp_cuda->z2[i];}
+            for (int i = 0; i < output_dim; i++) {d_mlp_cuda->z2[i] /= sum;}
+
+            printf("forward success\n");
+            // compute loss
+            vector<double> y_out = vector<double>(d_mlp_cuda->z2, d_mlp_cuda->z2 + d_mlp_cuda->output_dim);
+            // vector<double> y_label = vector<double>(d_y, labels + d_mlp_cuda->output_dim);
+            double loss = cross_entropy(y_out, y_label);
+            printf("loss: %f\n", loss);
+
+            // zero grad
+            set_zero_matrix_kernel<<<1, hidden_dim * input_dim>>>(d_mlp_cuda->W1, input_dim, hidden_dim);
+            set_zero_matrix_kernel<<<1, hidden_dim>>>(d_mlp_cuda->b1, 1, hidden_dim);
+            set_zero_matrix_kernel<<<1, output_dim * hidden_dim>>>(d_mlp_cuda->W2, hidden_dim, output_dim);
+            set_zero_matrix_kernel<<<1, output_dim>>>(d_mlp_cuda->b2, 1, output_dim);
+            printf("zero grad success\n");
+
+            // backward
+            one_layer_backward_softmax_kernel<<<1, output_dim>>>(d_mlp_cuda->y2, d_mlp_cuda->z2, d_y_label, d_mlp_cuda->W2_grad, d_mlp_cuda->b2_grad, hidden_dim, output_dim);          // output -> first hidden layer
+            one_layer_backward_sigmoid_kernel<<<1, hidden_dim>>>(d_mlp_cuda->y1, d_mlp_cuda->W1, d_mlp_cuda->b1_grad, d_mlp_cuda->W1_grad, d_mlp_cuda->b1, d_input, input_dim, hidden_dim);          // first hidden layer -> input
+            printf("backward success\n");
+
+            // update
+            matrix_update_kernel<<<1, hidden_dim * input_dim>>>(d_mlp_cuda->W1, d_mlp_cuda->W1_grad, learning_rate, input_dim, hidden_dim);
+            matrix_update_kernel<<<1, hidden_dim>>>(d_mlp_cuda->b1, d_mlp_cuda->b1_grad, learning_rate, 1, hidden_dim);
+            matrix_update_kernel<<<1, output_dim * hidden_dim>>>(d_mlp_cuda->W2, d_mlp_cuda->W2_grad, learning_rate, hidden_dim, output_dim);
+            matrix_update_kernel<<<1, output_dim>>>(d_mlp_cuda->b2, d_mlp_cuda->b2_grad, learning_rate, 1, output_dim);
+            printf("update success\n");
+
             // copy output data from device
             Copy_Device_to_Host(&h_mlp_cuda, d_mlp_cuda);
 
-            // compute loss
-            // cudaMemcpy(h_mlp_cuda.z2.data(), d_mlp_cuda.d_z2, h_mlp_cuda.z2.size() * sizeof(double), cudaMemcpyDeviceToHost);
-            vector<double> y_out = vector<double>(h_mlp_cuda.z2, h_mlp_cuda.z2 + h_mlp_cuda.output_dim);
-            auto loss = cross_entropy(y_out, y_label);
+            // // compute loss
+            // // cudaMemcpy(h_mlp_cuda.z2.data(), d_mlp_cuda.d_z2, h_mlp_cuda.z2.size() * sizeof(double), cudaMemcpyDeviceToHost);
+            // vector<double> y_out = vector<double>(h_mlp_cuda.z2, h_mlp_cuda.z2 + h_mlp_cuda.output_dim);
+            // auto loss = cross_entropy(y_out, y_label);
             // Print y_label and h_mlp_cuda.z2
             // printf("y_label: ");        // 正确
             // for (int j = 0; j < y_label.size(); j++) {
@@ -145,17 +243,17 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             // printf("\n");
             losses.push_back(loss);
             // printf("we got here\n");
-            if (i % 1000 == 0) {
+            if (iteration % 1000 == 0) {
                 double sum = 0;
                 for (auto &l: losses) {
                     sum += l;
                 }
                 double avg_loss = sum / losses.size();
                 losses.clear();
-                printf("Epoch: %d, Iteration: %d, Loss: %f\n", epoch, i, avg_loss);
+                printf("Epoch: %d, Iteration: %d, Loss: %f\n", epoch, iteration, avg_loss);
             }
-            cudaFree(d_x);
-            cudaFree(d_y);
+            cudaFree(d_input);
+            cudaFree(d_y_label);
 
             // debug: observe one iteration
             exit(0);
