@@ -257,16 +257,6 @@ __global__ void one_layer_backward_softmax_kernel(double* input, double* output,
             W_grad[idx * row + j] = b_grad[idx] * input[j];
         }
     }
-    // // check whether W_grad is null
-    // if (idx == 0) {
-    //     printf("----cuda backward----\n");
-    //     printf("row: %d, col: %d\n", row, col);
-    //     printf(input==NULL?"input is null\n":"input is not null\n");
-    //     printf(output==NULL?"output is null\n":"output is not null\n");
-    //     printf(y_label==NULL?"y_label is null\n":"y_label is not null\n");
-    //     printf(W_grad==NULL?"W_grad is null\n":"W_grad is not null\n");
-    //     printf(b_grad==NULL?"b_grad is null\n":"b_grad is not null\n");
-    // }
 }
 
 __global__ void matrix_update_kernel(double* W, double* W_grad, double lr, int row, int col) {
