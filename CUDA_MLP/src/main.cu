@@ -48,7 +48,7 @@ void train(double learning_rate, int epoch_num, int hidden_dim, const string &da
             // for (int j = 0; j < y_hat.size(); ++j) {printf("%f ", y_hat[j]);}
             // printf("\nloss: %f\n", loss);
 
-            if (i % 1000 == 0) {
+            if (i % 100 == 0) {
                 double sum = 0;
                 for (auto &l: losses) {
                     sum += l;
@@ -61,7 +61,8 @@ void train(double learning_rate, int epoch_num, int hidden_dim, const string &da
             mlp.backward(y, y_hat);
             mlp.update(learning_rate);
             
-            // if (i == 3) {exit(0);}
+            // return;     //* debug
+            if (i == 2000) {return;}
         }
     }
 }
@@ -106,9 +107,9 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             y_label[l] = 1;
             vector<double> input = vector<double>(x.begin(),x.end());
             // scale input to [0, 1] to avoid overflow (leading the computation result of sigmoid to be 1, thus gradient to be 0)
-            for (int i = 0; i < input.size(); ++i) {
-                input[i] /= 255;
-            }
+            // for (int i = 0; i < input.size(); ++i) {
+            //     input[i] /= 255;
+            // }
             
             // Copy input data and labels to device memory
             double *d_input, *d_y_label;
@@ -142,7 +143,7 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             // for (int i = 0; i < input_dim; ++i) {printf("%f ", input_check[i]);}
 
             //! launch kernel
-            int threads_per_block = 256;
+            int threads_per_block = 128;
             int num_blocks = (hidden_dim + threads_per_block - 1) / threads_per_block;
             one_layer_forward_sigmoid_kernel<<<num_blocks, threads_per_block>>>(d_input, d_W1, d_b1, d_y1, d_z1, input_dim, hidden_dim);          // input -> first hidden layer
             err = cudaGetLastError();  
@@ -161,6 +162,19 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             // printf("\ncheck y1 \n");
             // cudaMemcpy(h_mlp_cuda.y1, d_y1, hidden_dim * sizeof(double), cudaMemcpyDeviceToHost);
             // for (int i = 0; i < hidden_dim; ++i) {printf("%f ", h_mlp_cuda.y1[i]);}
+
+            // check the y1 output of sequential version
+            // double sum = 0;
+            // printf("\ncheck y1 sequential \n");
+            // for (int i = 0; i < hidden_dim; ++i){
+            //     double sum = 0;
+            //     for (int j = 0; j < input_dim; ++j){
+            //         sum += h_mlp_cuda.W1[i * input_dim + j] * input[j];
+            //     }
+            //     sum += h_mlp_cuda.b1[i];
+            //     printf("%f ", sum);
+            // }
+
             // printf("\ncheck z1 \n");
             // cudaMemcpy(h_mlp_cuda.z1, d_z1, hidden_dim * sizeof(double), cudaMemcpyDeviceToHost);
             // for (int i = 0; i < hidden_dim; ++i) {printf("%f ", h_mlp_cuda.z1[i]);}
@@ -169,7 +183,11 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             // for (int i = 0; i < output_dim; ++i) {printf("%f ", h_mlp_cuda.z2[i]);}
 
             num_blocks = (output_dim + threads_per_block - 1) / threads_per_block;
-            one_layer_forward_softmax_kernel<<<num_blocks, threads_per_block>>>(d_y1, d_W2, d_b2, d_y2, d_z2, hidden_dim, output_dim);          // first hidden layer -> output
+            // one_layer_forward_softmax_kernel<<<num_blocks, threads_per_block>>>(d_y1, d_W2, d_b2, d_y2, d_z2, hidden_dim, output_dim);          // first hidden layer -> output
+            one_layer_forward_softmax_kernel<<<num_blocks, threads_per_block>>>(d_z1, d_W2, d_b2, d_y2, d_z2, hidden_dim, output_dim);          // first hidden layer -> output       //! !!!!d_z1 here, not d_y1!!!
+            // printf("\ncheck y2: \n");       //* debug
+            // cudaMemcpy(h_mlp_cuda.y2, d_y2, output_dim * sizeof(double), cudaMemcpyDeviceToHost);
+            // for (int i = 0; i < output_dim; ++i) {printf("%f ", h_mlp_cuda.y2[i]);}
             // printf("\ncheck z2: \n");       //* debug
             // cudaMemcpy(h_mlp_cuda.z2, d_z2, output_dim * sizeof(double), cudaMemcpyDeviceToHost);
             // for (int i = 0; i < output_dim; ++i) {printf("%f ", h_mlp_cuda.z2[i]);}
@@ -220,21 +238,22 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
 
             // compute loss after device result is copied to host
             std::vector<double> y_out = std::vector<double>(h_mlp_cuda.z2, h_mlp_cuda.z2 + output_dim);
-            //* print y_out and y_label     //* debug
-            printf("\ny_out: \n");
-            for (int i = 0; i < output_dim; ++i) {printf("%f ", y_out[i]);}
-            printf("\ny_label: \n");
-            for (int i = 0; i < output_dim; ++i) {printf("%f ", y_label[i]);}
+            // //* print y_out and y_label     //* debug
+            // printf("\ny_out: \n");
+            // for (int i = 0; i < output_dim; ++i) {printf("%f ", y_out[i]);}
+            // printf("\ny_label: \n");
+            // for (int i = 0; i < output_dim; ++i) {printf("%f ", y_label[i]);}
 
             double loss = 0;
-            for (int i = 0; i < y_out.size(); i++) {
-                loss += -y_out[i] * log(y_label[i]);
-            }
+            // for (int i = 0; i < y_out.size(); i++) {
+            //     loss += -y_label[i] * log(y_out[i]);     // 7_label is either 0 or 1, cannot do log computation
+            // }
+            loss = cross_entropy(y_label, y_out);
             // printf("\nloss: %f\n", loss);       //* debug
 
             losses.push_back(loss);
             // printf("we got here\n");        //* debug
-            if (iteration % 100 == 0) {
+            if (iteration % 1000 == 0) {
                 double sum = 0;
                 for (auto &l: losses) {
                     sum += l;
@@ -248,7 +267,7 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
 
             //* debug: observe one iteration
             // exit(0);
-            if (iteration == 100) {exit(0);}
+            // if (iteration == 2000) {exit(0);}
         }
     }
 

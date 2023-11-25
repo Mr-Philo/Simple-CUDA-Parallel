@@ -1,5 +1,5 @@
 #include "mlp.h"
-// #include <stdio.h>
+#include <stdio.h>
 using namespace std;
 
 MLP::MLP(int input_dim, int hidden_dim, int output_dim) {
@@ -56,10 +56,27 @@ vector<double> MLP::forward(const vector<unsigned char> &x) {
     // printf("\n");
     y1 = matrix_dot(W1,input);
     vector_add(y1, b1);
+    // printf("y1: ");
+    // for (int i = 0; i < y1.size(); ++i) {
+    //     printf("%f ",y1[i]);
+    // }
+    // printf("\n");
     z1 = sigmoid(y1);
+    // printf("z1: ");
+    // for (int i = 0; i < z1.size(); ++i) {
+    //     printf("%f ",z1[i]);
+    // }
     vector<double> y2 = matrix_dot(W2,z1);
     vector_add(y2,b2);
+    // printf("\ny2: ");
+    // for (int i = 0; i < y2.size(); ++i) {
+    //     printf("%f ",y2[i]);
+    // }
     vector<double> z2 = softmax(y2);
+    // printf("\nz2: ");
+    // for (int i = 0; i < z2.size(); ++i) {
+    //     printf("%f ",z2[i]);
+    // }
     return z2;
 }
 
