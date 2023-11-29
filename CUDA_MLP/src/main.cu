@@ -25,8 +25,46 @@ void train(double learning_rate, int epoch_num, int hidden_dim, const string &da
     printf("Test labels: %zu\n", test_labels.size());
     assert(test_images.size() == test_labels.size());
 
+    int input_dim = 784;
+    int output_dim = 10;
+
+    // make up some fake data to test the potential ability of GPU
+    if(false){
+        // change every training image to a vector of 2000, label to a vector of 100
+        int fake_dim = 2000;        // cannot be too large
+        int fake_output_dim = 100;
+        int input_size = 6000;
+        int test_size = 1000;
+        delete &training_images;
+        delete &test_images;
+        delete &training_labels;
+        delete &test_labels;
+        std::vector<std::vector<double>> training_images;
+        std::vector<std::vector<double>> test_images;
+        std::vector<std::vector<int>> training_labels;
+        std::vector<std::vector<int>> test_labels;
+        training_images.reserve(input_size);
+        test_images.reserve(test_size);
+        training_labels.reserve(input_size);
+        test_labels.reserve(test_size);
+        training_images = std::vector<std::vector<double>>(input_size, std::vector<double>(fake_dim, 0.0));
+        test_images = std::vector<std::vector<double>>(test_size, std::vector<double>(fake_dim, 0.0));
+        training_labels = std::vector<std::vector<int>>(input_size, std::vector<int>(fake_output_dim, 0));
+        test_labels = std::vector<std::vector<int>>(test_size, std::vector<int>(fake_output_dim, 0));
+        printf("fake_training_images size: %zu x %zu\n", training_images.size(), training_images[0].size());
+        printf("fake_training_labels size: %zu x %zu\n", training_labels.size(), training_labels[0].size());
+        printf("fake_test_images size: %zu x %zu\n", test_images.size(), test_images[0].size());
+        printf("fake_test_labels size: %zu x %zu\n", test_labels.size(), test_labels[0].size());
+        for(int i = 0; i < training_images.size(); i++){for (int j = 0; j < fake_dim; ++j) { training_images[i][j] = static_cast<double>(random(0,255));}};
+        for(int i = 0; i < test_images.size(); i++){for (int j = 0; j < fake_dim; ++j) { test_images[i][j] = static_cast<double>(random(0,255));}};
+        for(int i = 0; i < training_labels.size(); i++){for (int j = 0; j < fake_output_dim; ++j) { training_labels[i][j] = 1;}};
+        for(int i = 0; i < test_labels.size(); i++){for (int j = 0; j < fake_output_dim; ++j) { test_labels[i][j] = 1;}};
+        int input_dim = fake_dim;
+        int output_dim = fake_output_dim;
+    }
+
     // Create a neural network with 784 inputs, 100 hidden neurons and 10 outputs
-    MLP mlp(784, hidden_dim, 10);
+    MLP mlp(input_dim, hidden_dim, output_dim);
 
     // Train the network
     for (int epoch = 0; epoch < epoch_num; epoch++) {
@@ -76,6 +114,41 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
     // Create a neural network with 784 inputs, 100 hidden neurons and 10 outputs
     int input_dim = 784;
     int output_dim = 10;
+
+    // make up some fake data to test the potential ability of GPU
+    if(false){
+        // change every training image to a vector of 2000, label to a vector of 100
+        int fake_dim = 2000;
+        int fake_output_dim = 100;
+        int input_size = 6000;
+        int test_size = 1000;
+        delete &training_images;
+        delete &test_images;
+        delete &training_labels;
+        delete &test_labels;
+        std::vector<std::vector<double>> training_images;
+        std::vector<std::vector<double>> test_images;
+        std::vector<std::vector<int>> training_labels;
+        std::vector<std::vector<int>> test_labels;
+        training_images.reserve(input_size);
+        test_images.reserve(test_size);
+        training_labels.reserve(input_size);
+        test_labels.reserve(test_size);
+        training_images = std::vector<std::vector<double>>(input_size, std::vector<double>(fake_dim, 0.0));
+        test_images = std::vector<std::vector<double>>(test_size, std::vector<double>(fake_dim, 0.0));
+        training_labels = std::vector<std::vector<int>>(input_size, std::vector<int>(fake_output_dim, 0));
+        test_labels = std::vector<std::vector<int>>(test_size, std::vector<int>(fake_output_dim, 0));
+        printf("fake_training_images size: %zu x %zu\n", training_images.size(), training_images[0].size());
+        printf("fake_training_labels size: %zu x %zu\n", training_labels.size(), training_labels[0].size());
+        printf("fake_test_images size: %zu x %zu\n", test_images.size(), test_images[0].size());
+        printf("fake_test_labels size: %zu x %zu\n", test_labels.size(), test_labels[0].size());
+        for(int i = 0; i < training_images.size(); i++){for (int j = 0; j < fake_dim; ++j) { training_images[i][j] = static_cast<double>(random(0,255));}};
+        for(int i = 0; i < test_images.size(); i++){for (int j = 0; j < fake_dim; ++j) { test_images[i][j] = static_cast<double>(random(0,255));}};
+        for(int i = 0; i < training_labels.size(); i++){for (int j = 0; j < fake_output_dim; ++j) { training_labels[i][j] = 1;}};
+        for(int i = 0; i < test_labels.size(); i++){for (int j = 0; j < fake_output_dim; ++j) { test_labels[i][j] = 1;}};
+        int input_dim = fake_dim;
+        int output_dim = fake_output_dim;
+    }
 
     MLP_CUDA h_mlp_cuda;
     Init_Host_MLP(&h_mlp_cuda, input_dim, hidden_dim, output_dim);
