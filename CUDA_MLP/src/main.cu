@@ -7,6 +7,7 @@
 #include "mnist_reader_less.h"
 #include "mlp.h"
 #include "cuda_mlp.h"
+#include <chrono>
 
 using namespace std;
 
@@ -109,7 +110,7 @@ void train_cuda(double learning_rate, int epoch_num, int hidden_dim, const strin
             }  
 
             //! launch kernel
-            int threads_per_block = 128;
+            int threads_per_block = 256;
             int num_blocks = (hidden_dim + threads_per_block - 1) / threads_per_block;
             one_layer_forward_sigmoid_kernel<<<num_blocks, threads_per_block>>>(d_input, d_W1, d_b1, d_y1, d_z1, input_dim, hidden_dim);          // input -> first hidden layer
             num_blocks = (output_dim + threads_per_block - 1) / threads_per_block;
@@ -202,8 +203,20 @@ int main(int argc, char *argv[]) {
                 break;
         }
     }
-    // train(learning_rate, epoch_num, hidden_dim, dataset_path);
+
+    auto start = std::chrono::steady_clock::now();
+    cout << "CPU version" << endl;
+    train(learning_rate, epoch_num, hidden_dim, dataset_path);
+    auto end = std::chrono::steady_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end-start;
+    cout << "Time of CPU version: " << elapsed_seconds.count() << "s\n";
+
+    start = std::chrono::steady_clock::now();
     cout << "CUDA version" << endl;
     train_cuda(learning_rate, epoch_num, hidden_dim, dataset_path);
+    end = std::chrono::steady_clock::now();
+    elapsed_seconds = end-start;
+    cout << "Time of CUDA version: " << elapsed_seconds.count() << "s\n";
+
     return 0;
 }
